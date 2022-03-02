@@ -8,7 +8,35 @@ output:
 
 ```{r setup, include=FALSE}
 library(flexdashboard)
+library(dplyr)
+library(tidyr)
+library(plotly)
+library(readxl)
 ```
+
+```{r load_data, echo = FALSE, include = FALSE}
+
+df_survey <- read_excel("Thriving_Communities_Ministry_Network_-_all_versions_-_labels_-_2022-03-02-22-13-13.xlsx", sheet = "Thriving Communities Ministr...")
+# df_survey %>% 
+#   rename(
+#   "congregation" = `Congregation name`,
+#   "congregation_street_address" = `Congregation street address`,
+#   "conregation_zip" = `Congregation ZIP code`,
+#   "respondent_name" = `Your name`,
+#   "respondent_role" = `Your role or title at the congegation`)
+
+
+
+df_activities <- read_excel("Thriving_Communities_Ministry_Network_-_all_versions_-_labels_-_2022-03-02-22-13-13.xlsx", sheet = "activities_grp") 
+
+df_partners <- read_excel("Thriving_Communities_Ministry_Network_-_all_versions_-_labels_-_2022-03-02-22-13-13.xlsx", sheet = "partner_grp")
+
+df <- left_join(df_survey, df_partners,
+                by = c("_uuid" = "_submission__uuid")) %>%
+  left_join(df_activities,
+            by = c("_uuid" = "_submission__uuid"))
+```
+
 
 Column {data-width=650}
 -----------------------------------------------------------------------
@@ -16,7 +44,10 @@ Column {data-width=650}
 ### Chart A
 
 ```{r}
-
+#df %>%
+#  group_by(`Congregation name`,
+#           `Please identify a partner`) %>%
+#  summarise()
 ```
 
 Column {data-width=350}
