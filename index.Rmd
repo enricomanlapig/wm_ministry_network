@@ -10,6 +10,7 @@ output:
 library(flexdashboard)
 library(dplyr)
 library(tidyr)
+library(igraph)
 library(plotly)
 library(readxl)
 ```
@@ -31,11 +32,54 @@ df_activities <- read_excel("Thriving_Communities_Ministry_Network_-_all_version
 
 df_partners <- read_excel("Thriving_Communities_Ministry_Network_-_all_versions_-_labels_-_2022-03-02-22-13-13.xlsx", sheet = "partner_grp")
 
+# Creating full row of congregrations with their activities and partnerships
 df <- left_join(df_survey, df_partners,
                 by = c("_uuid" = "_submission__uuid")) %>%
   left_join(df_activities,
             by = c("_uuid" = "_submission__uuid"))
+
+df <- df %>% 
+  rename(
+    congregation = `Congregation name`,
+    partner = `Please identify a partner organization your church engages in local mission work with.`,
+    org_type = `What type of organization is this partner?`,
+    activity = `What local mission activity does your church participate in?`,
+    activity_type = `What type of activity is this?`
+  )
+
 ```
+
+
+
+```{r edges_and_nodes, echo = FALSE, include = FALSE}
+
+
+# Filtering the data to retunrn only network graph fields
+df %>% select(congregation, partner, org_type, activity, activity_type) -> filtered_df
+
+# Returning dfs that contain cogregations grouped_by partner, activity, and org type
+filtered_df %>% group_by(partner, congregation) %>% summarise() %>%  #%>% pivot_wider(names_from = "partner", values_from = "congregation")
+
+
+
+filtered_df %>% group_by(org_type, congregation) %>% summarize()
+
+filtered_df %>% group_by(activity, congregation) %>% summarize()
+
+
+
+#G <- upgrade_graph(df)
+#es <- as.data.frame(get.edgelist(G))
+```
+
+
+
+
+```{r network_graphs, echo = FALSE, include = FALSE}
+
+
+```
+
 
 
 Column {data-width=650}
@@ -45,8 +89,8 @@ Column {data-width=650}
 
 ```{r}
 #df %>%
-#  group_by(`Congregation name`,
-#           `Please identify a partner`) %>%
+#  group_by(congregation,
+#           partner) %>%
 #  summarise()
 ```
 
