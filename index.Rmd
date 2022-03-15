@@ -13,6 +13,7 @@ library(tidyr)
 library(igraph)
 library(plotly)
 library(readxl)
+library(stringr)
 ```
 
 ```{r load_data, echo = FALSE, include = FALSE}
@@ -32,7 +33,7 @@ df_activities <- read_excel("Thriving_Communities_Ministry_Network_-_all_version
 
 df_partners <- read_excel("Thriving_Communities_Ministry_Network_-_all_versions_-_labels_-_2022-03-02-22-13-13.xlsx", sheet = "partner_grp")
 
-# Creating full row of congregrations with their activities and partnerships
+# Creating full row of congregations with their activities and partnerships
 df <- left_join(df_survey, df_partners,
                 by = c("_uuid" = "_submission__uuid")) %>%
   left_join(df_activities,
@@ -47,29 +48,202 @@ df <- df %>%
     activity_type = `What type of activity is this?`
   )
 
+
 ```
 
 
 
+```{r edge_list, echo = FALSE, include = FALSE}
+
+# Filtering the data to return only network graph fields
+df %>% select("_uuid", congregation, partner, org_type, activity, activity_type) -> filtered_df
+
+nodes <- filtered_df %>% select(congregation) %>% distinct() %>% na.omit()
+
+
+# Activity wrangling
+#-------------------------------------------------------------------------------
+filtered_df %>% group_by(activity) %>% 
+summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> activity_congregations
+
+# Getting the number of congregations that share a specific org type and putting them in different cols
+ncols <- max(stringr::str_count(unique(activity_congregations$congregations), " ")) + 1
+colmn <- paste("congregation", 1:ncols)
+
+# Putting each congregation for each partner in its own column 
+activity_congregations <-
+  tidyr::separate(
+    data = activity_congregations,
+    col = congregations,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% select(-congregations)
+
+# Unique pairs of congregations for each partner separated by comma
+activity_congregations %>%
+  pivot_longer(cols = -activity) %>%
+  group_by(activity) %>%
+  summarise(combn = list(combn(value, 2, toString))) %>%
+  unnest(combn) %>% distinct() -> activity_congregations
+
+# Putting each congregation of each unique pair into a distinct column
+colmn <- paste("congregation", 2:1)
+activity_congregations <-
+  tidyr::separate(
+    data = activity_congregations,
+    col = combn,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% 
+  select(-combn)
+  
+activity_congregations <- activity_congregations %>% mutate(link_type = "activity") %>% relocate(link_type) %>% rename(specific_link = activity) %>% rev()
+
+
+# Partner wrangling
+#------------------------------------------------------------------------------
+# Finding all congregations associated with each partner and putting them in a row
+filtered_df %>% group_by(partner) %>% 
+summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> partner_congregations
+
+# Getting the number of congregations that share a specific partner and putting them in different cols
+ncols <- max(stringr::str_count(unique(partner_congregations$congregations), " ")) + 1
+colmn <- paste("congregation", 1:ncols)
+
+# Putting each congregation for each partner in its own column 
+partner_congregations <-
+  tidyr::separate(
+    data = partner_congregations,
+    col = congregations,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% select(-congregations)
+
+# Unique pairs of congregations for each partner separated by comma
+partner_congregations %>%
+  pivot_longer(cols = -partner) %>%
+  group_by(partner) %>%
+  summarise(combn = list(combn(value, 2, toString))) %>%
+  unnest(combn) %>% distinct() -> partner_congregations
+
+# Putting each congregation of each unique pair into a distinct column
+colmn <- paste("congregation", 2:1)
+partner_congregations <-
+  tidyr::separate(
+    data = partner_congregations,
+    col = combn,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% 
+  select(-combn)
+  
+partner_congregations <- partner_congregations %>% mutate(link_type = "partner") %>% relocate(link_type) %>% rename(specific_link = partner) %>% rev()
+
+
+# Org Type wrangling
+#-------------------------------------------------------------------------------
+filtered_df %>% group_by(org_type) %>% 
+summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> org_type_congregations
+
+# Getting the number of congregations that share a specific org type and putting them in different cols
+ncols <- max(stringr::str_count(unique(org_type_congregations$congregations), " ")) + 1
+colmn <- paste("congregation", 1:ncols)
+
+# Putting each congregation for each partner in its own column 
+org_type_congregations <-
+  tidyr::separate(
+    data = org_type_congregations,
+    col = congregations,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% select(-congregations)
+
+# Unique pairs of congregations for each partner separated by comma
+org_type_congregations %>%
+  pivot_longer(cols = -org_type) %>%
+  group_by(org_type) %>%
+  summarise(combn = list(combn(value, 2, toString))) %>%
+  unnest(combn) %>% distinct() -> org_type_congregations
+
+# Putting each congregation of each unique pair into a distinct column
+colmn <- paste("congregation", 2:1)
+org_type_congregations <-
+  tidyr::separate(
+    data = org_type_congregations,
+    col = combn,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% 
+  select(-combn)
+  
+org_type_congregations <- org_type_congregations %>% mutate(link_type = "org_type") %>% relocate(link_type) %>% rename(specific_link = org_type) %>% rev()
+
+
+# Binding rows of activity, parter, and organization type data frames
+connections <- rbind(partner_congregations, org_type_congregations) %>% rbind(activity_congregations)
+
+# Filter out nulls? Maybe not necessary
+connections <- connections[!grepl("NA", connections$`congregation 2`),]
+connections <- connections[!grepl("NA", connections$`congregation 1`),]
+```
+
+
 ```{r edges_and_nodes, echo = FALSE, include = FALSE}
 
+G <- graph.data.frame(connections)
+L <- layout.circle(G)
 
-# Filtering the data to retunrn only network graph fields
-df %>% select(congregation, partner, org_type, activity, activity_type) -> filtered_df
+vs <- V(G)
+es <- connections
 
-# Returning dfs that contain cogregations grouped_by partner, activity, and org type
-filtered_df %>% group_by(partner, congregation) %>% summarise() %>%  #%>% pivot_wider(names_from = "partner", values_from = "congregation")
-
-
-
-filtered_df %>% group_by(org_type, congregation) %>% summarize()
-
-filtered_df %>% group_by(activity, congregation) %>% summarize()
+Nv <- length(vs)
+Ne <- length(es[1]$`congregation 1`)
 
 
+Xn <- L[,1]
+Yn <- L[,2]
 
-#G <- upgrade_graph(df)
-#es <- as.data.frame(get.edgelist(G))
+
+network <- plot_ly(x = ~Xn, y = ~Yn, mode = "markers", text = vs$label, hoverinfo = "text")
+network
+
+
+
+edge_shapes <- list()
+for(i in 1:Ne) {
+  v0 <- connections[i,]$`congregation 1`
+  v1 <- connections[i,]$`congregation 2`
+
+  edge_shape = list(
+    type = "line",
+    line = list(color = "#030303", width = 0.3),
+    x0 = Xn[v0],
+    y0 = Yn[v0],
+    x1 = Xn[v1],
+    y1 = Yn[v1]
+  )
+
+  edge_shapes[[i]] <- edge_shape
+}
+
+axis <- list(title = "", showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
+
+fig <- layout(
+  network,
+  title = 'Congregation Network',
+  shapes = edge_shapes,
+  xaxis = axis,
+  yaxis = axis
+)
+
+fig
+
 ```
 
 
