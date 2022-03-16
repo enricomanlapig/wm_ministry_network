@@ -99,7 +99,7 @@ activity_congregations <-
   ) %>% 
   select(-combn)
   
-activity_congregations <- activity_congregations %>% mutate(link_type = "activity") %>% relocate(link_type) %>% rename(specific_link = activity) %>% rev()
+activity_congregations <- activity_congregations %>% mutate(link_type = "activity", color = "yellow") %>% relocate(color, link_type) %>% rename(specific_link = activity) %>% rev()
 
 
 # Partner wrangling
@@ -141,7 +141,7 @@ partner_congregations <-
   ) %>% 
   select(-combn)
   
-partner_congregations <- partner_congregations %>% mutate(link_type = "partner") %>% relocate(link_type) %>% rename(specific_link = partner) %>% rev()
+partner_congregations <- partner_congregations %>% mutate(link_type = "partner", color = "pink") %>% relocate(color, link_type) %>% rename(specific_link = partner) %>% rev()
 
 
 # Org Type wrangling
@@ -182,7 +182,7 @@ org_type_congregations <-
   ) %>% 
   select(-combn)
   
-org_type_congregations <- org_type_congregations %>% mutate(link_type = "org_type") %>% relocate(link_type) %>% rename(specific_link = org_type) %>% rev()
+org_type_congregations <- org_type_congregations %>% mutate(link_type = "org_type", color = "red") %>% relocate(color, link_type) %>% rename(specific_link = org_type) %>% rev()
 
 
 # Binding rows of activity, parter, and organization type data frames
@@ -191,49 +191,74 @@ connections <- rbind(partner_congregations, org_type_congregations) %>% rbind(ac
 # Filter out nulls? Maybe not necessary
 connections <- connections[!grepl("NA", connections$`congregation 2`),]
 connections <- connections[!grepl("NA", connections$`congregation 1`),]
+
+connections
 ```
 
 
 ```{r edges_and_nodes, echo = FALSE, include = FALSE}
 
-G <- graph.data.frame(connections)
+# Making the igraph object and layout configurations
+G <- graph.data.frame(connections, directed = FALSE)
 L <- layout.circle(G)
 
-vs <- V(G)
-es <- connections
+# Vertices, edges, and edgelist of the graph object
+vertices <- V(G)
+edges <- E(G)
+edgelist <- as.data.frame(get.edgelist(G))
 
-Nv <- length(vs)
-Ne <- length(es[1]$`congregation 1`)
+# The amount of edges and vertices
+Nv <- length(vertices)
+Ne <- length(edgelist[1]$V1)
 
 
+# X and Y coordinates of nodes
 Xn <- L[,1]
 Yn <- L[,2]
 
+# Nodes
+network <- plot_ly(x = ~Xn, y = ~Yn, text = V(G)$name, hoverinfo = "text")
 
-network <- plot_ly(x = ~Xn, y = ~Yn, mode = "markers", text = vs$label, hoverinfo = "text")
-network
+# Node sizing
+network <- network %>%
+  add_trace(
+    marker = list(
+      size = 20,
+      line = list(
+        width = 2
+      )
+    )
+  )
+  
 
-
-
+# Edge construction
 edge_shapes <- list()
 for(i in 1:Ne) {
-  v0 <- connections[i,]$`congregation 1`
-  v1 <- connections[i,]$`congregation 2`
+
+  v0 <- edgelist[i,]$V1
+  v1 <- edgelist[i,]$V2
+
+  v0_index <- which(V(G)$name == v0)
+  v1_index <- which(V(G)$name == v1)
 
   edge_shape = list(
-    type = "line",
-    line = list(color = "#030303", width = 0.3),
-    x0 = Xn[v0],
-    y0 = Yn[v0],
-    x1 = Xn[v1],
-    y1 = Yn[v1]
+  type = "line",
+  line = list(color = E(G)$color[i], width = 4),
+  x0 = Xn[v0_index],
+  y0 = Yn[v0_index],
+  x1 = Xn[v1_index],
+  y1 = Yn[v1_index],
+  # Currently does not work, need to add on hover functionality
+  text = E(G)$specific_link[i], 
+  hoverinfo = "text"
   )
-
   edge_shapes[[i]] <- edge_shape
 }
 
+# X and Y axis construction
 axis <- list(title = "", showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
 
+# Graph construction
 fig <- layout(
   network,
   title = 'Congregation Network',
@@ -242,7 +267,28 @@ fig <- layout(
   yaxis = axis
 )
 
-fig
+```
+
+
+
+```{r}
+
+# Base R Network... here for reference and as placeholder while plotly is under development
+serialCircle <- layout_in_circle(G)
+plot(G, layout=serialCircle, vertex.label=NA, vertex.size=15)
+
+graph <- plot( G, 
+      vertex.label=V(G)$name, 
+      vertex.size=15, 
+      edge.color=E(G)$color,
+      main="Congregation Network",
+      mode = "undirected"
+    )
+
+graph
+
+
+  
 
 ```
 
@@ -262,10 +308,7 @@ Column {data-width=650}
 ### Chart A
 
 ```{r}
-#df %>%
-#  group_by(congregation,
-#           partner) %>%
-#  summarise()
+fig
 ```
 
 Column {data-width=350}
