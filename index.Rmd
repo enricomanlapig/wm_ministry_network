@@ -66,6 +66,9 @@ nodes <- filtered_df %>% select(congregation) %>% distinct() %>% na.omit()
 filtered_df %>% group_by(activity) %>% 
 summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> activity_congregations
 
+filtered_df %>% group_by(congregation) %>% 
+summarize(activities = paste(sort(unique(activity)),collapse=", ")) %>% na.omit() -> activities
+
 # Getting the number of congregations that share a specific org type and putting them in different cols
 ncols <- max(stringr::str_count(unique(activity_congregations$congregations), " ")) + 1
 colmn <- paste("congregation", 1:ncols)
@@ -107,6 +110,9 @@ activity_congregations <- activity_congregations %>% mutate(link_type = "activit
 # Finding all congregations associated with each partner and putting them in a row
 filtered_df %>% group_by(partner) %>% 
 summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> partner_congregations
+
+filtered_df %>% group_by(congregation) %>% 
+summarize(partners = paste(sort(unique(partner)),collapse=", ")) %>% na.omit() -> partners
 
 # Getting the number of congregations that share a specific partner and putting them in different cols
 ncols <- max(stringr::str_count(unique(partner_congregations$congregations), " ")) + 1
@@ -232,15 +238,26 @@ plot_ly(
     y = ~y_positions,
     mode = "markers",
     type = "scatter",
-    text = names(vertices),
-    hoverinfo = "text"
+    hoverinfo = "text",
+    text = ~paste(names(vertices), '<br><br>',
+                      'Partners: ', partners$partners, '<br>',
+                      'Activities: ', activities$activities, '<br>')
   ) %>%
   add_segments(
     x = ~edge_positions$x,
     y = ~edge_positions$y,
     xend = ~edge_positions$xend,
     yend = ~edge_positions$yend,
-    inherit = FALSE)
+    inherit = FALSE) %>% 
+  layout(xaxis = list(title="",
+                      zeroline = F,
+                      showgrid = F,
+                      showticklabels = F
+                     ),
+         yaxis = list(title="",
+                      zeroline = F,
+                      showgrid = F,
+                      showticklabels = F))
 
 
 ```
