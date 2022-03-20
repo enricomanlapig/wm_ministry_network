@@ -60,20 +60,17 @@ df <- df %>%
 # Filtering the data to return only network graph fields
 df %>% select("_uuid", congregation, partner, org_type, activity, activity_type) -> filtered_df
 
-nodes <- filtered_df %>% select(congregation, partner, activity) %>% distinct() %>% na.omit()
-
-
 # Activity wrangling
 #-------------------------------------------------------------------------------
 filtered_df %>% group_by(activity) %>% 
 summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> activity_congregations
 
 filtered_df %>% group_by(congregation) %>% 
-summarize(activities = paste(sort(unique(activity)),collapse=", ")) %>% na.omit() -> activities
+summarize(activities = paste(sort(unique(activity)),collapse=", ")) %>% na.omit() -> activity_text
 
 # Getting the number of congregations that share a specific org type and putting them in different cols
 ncols <- max(stringr::str_count(unique(activity_congregations$congregations), " ")) + 1
-colmn <- paste("congregation", 1:ncols)
+colmn <- paste("congregation",1:ncols)
 
 # Putting each congregation for each partner in its own column 
 activity_congregations <-
@@ -93,7 +90,7 @@ activity_congregations %>%
   unnest(combn) %>% distinct() -> activity_congregations
 
 # Putting each congregation of each unique pair into a distinct column
-colmn <- paste("congregation", 2:1)
+colmn <- paste("congregation",2:1)
 activity_congregations <-
   tidyr::separate(
     data = activity_congregations,
@@ -106,8 +103,6 @@ activity_congregations <-
   
 activity_congregations <- activity_congregations %>% rev()
 
-activities <- activity_congregations %>% mutate(link_type = "activity", color = "yellow") %>% relocate(color, link_type) %>% rename(specific_link = activity) %>% rev()
-
 
 # Partner wrangling
 #------------------------------------------------------------------------------
@@ -116,11 +111,11 @@ filtered_df %>% group_by(partner) %>%
 summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> partner_congregations
 
 filtered_df %>% group_by(congregation) %>% 
-summarize(partners = paste(sort(unique(partner)),collapse=", ")) %>% na.omit() -> partners
+summarize(partners = paste(sort(unique(partner)),collapse=", ")) %>% na.omit() -> partner_text
 
 # Getting the number of congregations that share a specific partner and putting them in different cols
 ncols <- max(stringr::str_count(unique(partner_congregations$congregations), " ")) + 1
-colmn <- paste("congregation", 1:ncols)
+colmn <- paste("congregation",1:ncols)
 
 # Putting each congregation for each partner in its own column 
 partner_congregations <-
@@ -140,7 +135,7 @@ partner_congregations %>%
   unnest(combn) %>% distinct() -> partner_congregations
 
 # Putting each congregation of each unique pair into a distinct column
-colmn <- paste("congregation", 2:1)
+colmn <- paste("congregation",2:1)
 partner_congregations <-
   tidyr::separate(
     data = partner_congregations,
@@ -153,8 +148,29 @@ partner_congregations <-
   
 partner_congregations <- partner_congregations %>% rev()
 
-partners <- partner_congregations %>% mutate(link_type = "partner", color = "pink") %>% relocate(color, link_type) %>% rename(specific_link = partner) %>% rev()
+# Alternate edge list that separates activities and partners
+activities_and_partners <- left_join(partner_congregations, activity_congregations, by = c('congregation 1' = 'congregation 1', "congregation 2" = "congregation 2"))
+for (i in 1:nrow(activities_and_partners)){
+  if (activities_and_partners[i,]$`congregation 1` == "NA"){
+    activities_and_partners[i,]$`congregation 1` <- activities_and_partners[i,]$`congregation 2`
+  }
+  else if (activities_and_partners[i,]$`congregation 2` == "NA"){
+    activities_and_partners[i,]$`congregation 2` <- activities_and_partners[i,]$`congregation 1`
+  }
+}
 
+# Filter out nulls
+activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 2`),]
+activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 1`),]
+df <- activities_and_partners %>% rename(from = 'congregation 1', to = 'congregation 2')
+
+
+
+# The section below is currently not being used but may be useful if the edgelist changes
+#------------------------------------------------------------------------------
+activities <- activity_congregations %>% mutate(link_type = "activity", color = "yellow") %>% relocate(color, link_type, activity) %>% rename(specific_link = activity) %>% rev()
+
+partners <- partner_congregations %>% mutate(link_type = "partner", color = "pink") %>% relocate(color, link_type, partner) %>% rename(specific_link = partner) %>% rev()
 
 # Binding rows of activity, parter, and organization type data frames
 connections <- rbind(partners, activities)
@@ -163,76 +179,9 @@ connections <- connections %>% mutate(id = c(1:nrow(connections)))
 # Filter out nulls? Maybe not necessary
 connections <- connections[!grepl("NA", connections$`congregation 2`),]
 connections <- connections[!grepl("NA", connections$`congregation 1`),]
-
-# Alternate edge list that separates activities and partners
-activities_and_partners <- left_join(partner_congregations, activity_congregations, by = c('congregation 1' = 'congregation 1', "congregation 2" = "congregation 2"))
-activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 2`),]
-activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 1`),]
-df <- activities_and_partners %>% rename(from = 'congregation 1', to = 'congregation 2')
-
+#------------------------------------------------------------------------------
 
 ```
-
-
-```{r}
-
-
-# # Plotly Network code 
-# 
-# # Nodes
-# network <- plot_ly(x = ~Xn, y = ~Yn, text = V(G)$name, hoverinfo = "text")
-# 
-# # Node sizing
-# network <- network %>%
-#   add_trace(
-#     marker = list(
-#       size = 20,
-#       line = list(
-#         width = 2
-#       )
-#     )
-#   )
-# 
-# # Edge construction
-# edge_shapes <- list()
-# for(i in 1:Ne) {
-# 
-#   v0 <- edgelist[i,]$V1
-#   v1 <- edgelist[i,]$V2
-# 
-#   v0_index <- which(V(G)$name == v0)
-#   v1_index <- which(V(G)$name == v1)
-# 
-#   edge_shape = list(
-#   type = "line",
-#   line = list(color = E(G)$color[i], width = 4, hoverinfo = E(G)$specific_link[i]), #hoverinfo = E(G)$specific_link[i], 
-#   x0 = Xn[v0_index],
-#   y0 = Yn[v0_index],
-#   x1 = Xn[v1_index],
-#   y1 = Yn[v1_index]#,
-#   # Currently does not work, need to add on hover functionality
-#   #hoverinfo = E(G)$specific_link[i]
-#   )
-#   edge_shapes[[i]] <- edge_shape
-# }
-# edge_shapes
-# # X and Y axis construction
-# axis <- list(title = "", showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
-# 
-# # Graph construction
-# fig <- layout(
-#   network,
-#   title = 'Congregation Network',
-#   shapes = edge_shapes,
-#   xaxis = axis,
-#   yaxis = axis,
-# )
-# 
-# fig
-#   
-
-```
-
 
 Inputs {.sidebar}
 -----------------------------------------------------------------------
@@ -268,8 +217,7 @@ renderPlotly({
 # Making the igraph object and layout configurations
  df %>%
    # Currently the stacking logic of the filters isn't what it should be
-    dplyr::filter(partner %in% input$my_partner) %>% 
-    dplyr::filter(activity %in% input$my_activity) %>%
+    dplyr::filter(partner %in% input$my_partner | activity %in% input$my_activity) %>%
     graph_from_data_frame() -> my_igraph
 
  network_layout <- layout_with_fr(my_igraph)
@@ -296,11 +244,19 @@ plot_ly(
     mode = "markers",
     type = "scatter",
     hoverinfo = "text",
-    text = ~paste(names(vertices), '<br><br>',
-                                    # Not sure why this isn't printing
-                       'Partners: ', partners$partners, '<br>',
-                                    # Or this
-                       'Activities: ', activities$activities, '<br>')
+     text = ~paste(names(vertices)
+                 
+                   #TODO: Change df being fed to igraph and manipulate to have text change 
+                   # as filter input changes
+                 
+                     #, '<br><br>',
+    #                                 # Not sure why this isn't printing
+    #                    'Partners: ', partner_text$partners, '<br>',
+    #                                 # Or this
+    #                    'Activities: ', activity_text$activities, '<br>'
+                 
+    
+     )
     
   ) %>%
   add_segments(
