@@ -4,6 +4,7 @@ output:
   flexdashboard::flex_dashboard:
     orientation: columns
     vertical_layout: fill
+runtime: shiny
 ---
 
 ```{r setup, include=FALSE}
@@ -14,6 +15,7 @@ library(igraph)
 library(plotly)
 library(readxl)
 library(stringr)
+library(shiny)
 ```
 
 ```{r load_data, echo = FALSE, include = FALSE}
@@ -58,7 +60,7 @@ df <- df %>%
 # Filtering the data to return only network graph fields
 df %>% select("_uuid", congregation, partner, org_type, activity, activity_type) -> filtered_df
 
-nodes <- filtered_df %>% select(congregation) %>% distinct() %>% na.omit()
+nodes <- filtered_df %>% select(congregation, partner, activity) %>% distinct() %>% na.omit()
 
 
 # Activity wrangling
@@ -102,7 +104,9 @@ activity_congregations <-
   ) %>% 
   select(-combn)
   
-activity_congregations <- activity_congregations %>% mutate(link_type = "activity", color = "yellow") %>% relocate(color, link_type) %>% rename(specific_link = activity) %>% rev()
+activity_congregations <- activity_congregations %>% rev()
+
+activities <- activity_congregations %>% mutate(link_type = "activity", color = "yellow") %>% relocate(color, link_type) %>% rename(specific_link = activity) %>% rev()
 
 
 # Partner wrangling
@@ -147,84 +151,137 @@ partner_congregations <-
   ) %>% 
   select(-combn)
   
-partner_congregations <- partner_congregations %>% mutate(link_type = "partner", color = "pink") %>% relocate(color, link_type) %>% rename(specific_link = partner) %>% rev()
+partner_congregations <- partner_congregations %>% rev()
 
-
-# Org Type wrangling
-#-------------------------------------------------------------------------------
-# filtered_df %>% group_by(org_type) %>% 
-# summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> org_type_congregations
-# 
-# # Getting the number of congregations that share a specific org type and putting them in different cols
-# ncols <- max(stringr::str_count(unique(org_type_congregations$congregations), " ")) + 1
-# colmn <- paste("congregation", 1:ncols)
-# 
-# # Putting each congregation for each partner in its own column 
-# org_type_congregations <-
-#   tidyr::separate(
-#     data = org_type_congregations,
-#     col = congregations,
-#     sep = ", ",
-#     into = colmn,
-#     remove = FALSE
-#   ) %>% select(-congregations)
-# 
-# # Unique pairs of congregations for each partner separated by comma
-# org_type_congregations %>%
-#   pivot_longer(cols = -org_type) %>%
-#   group_by(org_type) %>%
-#   summarise(combn = list(combn(value, 2, toString))) %>%
-#   unnest(combn) %>% distinct() -> org_type_congregations
-# 
-# # Putting each congregation of each unique pair into a distinct column
-# colmn <- paste("congregation", 2:1)
-# org_type_congregations <-
-#   tidyr::separate(
-#     data = org_type_congregations,
-#     col = combn,
-#     sep = ", ",
-#     into = colmn,
-#     remove = FALSE
-#   ) %>% 
-#   select(-combn)
-#   
-# org_type_congregations <- org_type_congregations %>% mutate(link_type = "org_type", color = "red") %>% relocate(color, link_type) %>% rename(specific_link = org_type) %>% rev()
+partners <- partner_congregations %>% mutate(link_type = "partner", color = "pink") %>% relocate(color, link_type) %>% rename(specific_link = partner) %>% rev()
 
 
 # Binding rows of activity, parter, and organization type data frames
-connections <- rbind(partner_congregations, activity_congregations)
+connections <- rbind(partners, activities)
 connections <- connections %>% mutate(id = c(1:nrow(connections)))
 
 # Filter out nulls? Maybe not necessary
 connections <- connections[!grepl("NA", connections$`congregation 2`),]
 connections <- connections[!grepl("NA", connections$`congregation 1`),]
 
+# Alternate edge list that separates activities and partners
+activities_and_partners <- left_join(partner_congregations, activity_congregations, by = c('congregation 1' = 'congregation 1', "congregation 2" = "congregation 2"))
+activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 2`),]
+activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 1`),]
+df <- activities_and_partners %>% rename(from = 'congregation 1', to = 'congregation 2')
 
 
-edge_information <- pivot_longer(connections, cols = starts_with("congregation"), names_to = "congregation", values_to = "specific_congregation")
-
-edge_information
 ```
 
 
-```{r edges_and_nodes, echo = FALSE, include = FALSE}
+```{r}
+
+
+# # Plotly Network code 
+# 
+# # Nodes
+# network <- plot_ly(x = ~Xn, y = ~Yn, text = V(G)$name, hoverinfo = "text")
+# 
+# # Node sizing
+# network <- network %>%
+#   add_trace(
+#     marker = list(
+#       size = 20,
+#       line = list(
+#         width = 2
+#       )
+#     )
+#   )
+# 
+# # Edge construction
+# edge_shapes <- list()
+# for(i in 1:Ne) {
+# 
+#   v0 <- edgelist[i,]$V1
+#   v1 <- edgelist[i,]$V2
+# 
+#   v0_index <- which(V(G)$name == v0)
+#   v1_index <- which(V(G)$name == v1)
+# 
+#   edge_shape = list(
+#   type = "line",
+#   line = list(color = E(G)$color[i], width = 4, hoverinfo = E(G)$specific_link[i]), #hoverinfo = E(G)$specific_link[i], 
+#   x0 = Xn[v0_index],
+#   y0 = Yn[v0_index],
+#   x1 = Xn[v1_index],
+#   y1 = Yn[v1_index]#,
+#   # Currently does not work, need to add on hover functionality
+#   #hoverinfo = E(G)$specific_link[i]
+#   )
+#   edge_shapes[[i]] <- edge_shape
+# }
+# edge_shapes
+# # X and Y axis construction
+# axis <- list(title = "", showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
+# 
+# # Graph construction
+# fig <- layout(
+#   network,
+#   title = 'Congregation Network',
+#   shapes = edge_shapes,
+#   xaxis = axis,
+#   yaxis = axis,
+# )
+# 
+# fig
+#   
+
+```
+
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+checkboxGroupInput(
+  "my_partner",
+  label = h3("Choose a Partner"),
+  choices = unique(df$partner),
+  selected = unique(df$partner))
+```
+
+
+```{r}
+checkboxGroupInput(
+  "my_activity",
+  label = h3("Choose an Activity"),
+  choices = unique(df$activity),
+  selected = unique(df$activity))
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Chart A
+
+```{r}
+renderPlotly({
+  
+  set.seed(1)
+  
 
 # Making the igraph object and layout configurations
-G <- graph.data.frame(connections, directed = FALSE)
-network_layout <- layout.circle(G)
+ df %>%
+   # Currently the stacking logic of the filters isn't what it should be
+    dplyr::filter(partner %in% input$my_partner) %>% 
+    dplyr::filter(activity %in% input$my_activity) %>%
+    graph_from_data_frame() -> my_igraph
+
+ network_layout <- layout_with_fr(my_igraph)
+
 # X and Y coordinates of nodes
 x_positions <- network_layout[,1]
 y_positions <- network_layout[,2]
 
 # Vertices, edges, and edgelist of the graph object
-vertices <- V(G)
-edges <- E(G)
-edgelist <- as.data.frame(get.edgelist(G))
-
-# The amount of edges and vertices
-Nv <- length(vertices)
-Ne <- length(edgelist[1]$V1)
-
+vertices <- V(my_igraph)
+edges <- E(my_igraph)
+edgelist <- as.data.frame(get.edgelist(my_igraph))
 
 edge_positions <- data.frame(
       x = network_layout[vertices[edgelist[1]$V1],1],
@@ -240,8 +297,11 @@ plot_ly(
     type = "scatter",
     hoverinfo = "text",
     text = ~paste(names(vertices), '<br><br>',
-                      'Partners: ', partners$partners, '<br>',
-                      'Activities: ', activities$activities, '<br>')
+                                    # Not sure why this isn't printing
+                       'Partners: ', partners$partners, '<br>',
+                                    # Or this
+                       'Activities: ', activities$activities, '<br>')
+    
   ) %>%
   add_segments(
     x = ~edge_positions$x,
@@ -258,102 +318,6 @@ plot_ly(
                       zeroline = F,
                       showgrid = F,
                       showticklabels = F))
-
-
-```
-
-
-
-```{r}
-
-
-# Plotly Network code 
-
-# Nodes
-network <- plot_ly(x = ~Xn, y = ~Yn, text = V(G)$name, hoverinfo = "text")
-
-# Node sizing
-network <- network %>%
-  add_trace(
-    marker = list(
-      size = 20,
-      line = list(
-        width = 2
-      )
-    )
-  )
-
-# Edge construction
-edge_shapes <- list()
-for(i in 1:Ne) {
-
-  v0 <- edgelist[i,]$V1
-  v1 <- edgelist[i,]$V2
-
-  v0_index <- which(V(G)$name == v0)
-  v1_index <- which(V(G)$name == v1)
-
-  edge_shape = list(
-  type = "line",
-  line = list(color = E(G)$color[i], width = 4, hoverinfo = E(G)$specific_link[i]), #hoverinfo = E(G)$specific_link[i], 
-  x0 = Xn[v0_index],
-  y0 = Yn[v0_index],
-  x1 = Xn[v1_index],
-  y1 = Yn[v1_index]#,
-  # Currently does not work, need to add on hover functionality
-  #hoverinfo = E(G)$specific_link[i]
-  )
-  edge_shapes[[i]] <- edge_shape
-}
-edge_shapes
-# X and Y axis construction
-axis <- list(title = "", showgrid = FALSE, showticklabels = FALSE, zeroline = FALSE)
-
-# Graph construction
-fig <- layout(
-  network,
-  title = 'Congregation Network',
-  shapes = edge_shapes,
-  xaxis = axis,
-  yaxis = axis,
-)
-
-fig
-  
+})
 
 ```
-
-
-
-
-```{r network_graphs, echo = FALSE, include = FALSE}
-
-
-```
-
-
-
-Column {data-width=650}
------------------------------------------------------------------------
-
-### Chart A
-
-```{r}
-
-```
-
-Column {data-width=350}
------------------------------------------------------------------------
-
-### Chart B
-
-```{r}
-
-```
-
-### Chart C
-
-```{r}
-
-```
-
