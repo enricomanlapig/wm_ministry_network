@@ -1,0 +1,13 @@
+name: wm_ministry_network
+title: wm_ministry_network
+username:
+account: enricomanlapig
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5929968
+bundleId: 5892443
+url: https://enricomanlapig.shinyapps.io/wm_ministry_network/
+when: 1652213034.87658
+lastSyncTime: 1652213034.87658
+asMultiple: FALSE
+asStatic: FALSE

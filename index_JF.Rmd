@@ -1,0 +1,307 @@
+---
+title: "Westmont Thriving Communities Ministry Network"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(tidyr)
+library(igraph)
+library(plotly)
+library(readxl)
+library(stringr)
+library(shiny)
+```
+
+```{r load_data, echo = FALSE, include = FALSE}
+
+source_file <- "Thriving_Communities_Ministry_Network.xlsx"
+
+df_survey <- read_excel(source_file, 
+                        sheet = "Thriving Communities Ministr...")
+# df_survey %>% 
+#   rename(
+#   "congregation" = `Congregation name`,
+#   "congregation_street_address" = `Congregation street address`,
+#   "conregation_zip" = `Congregation ZIP code`,
+#   "respondent_name" = `Your name`,
+#   "respondent_role" = `Your role or title at the congegation`)
+
+
+
+df_activities <- read_excel(source_file, 
+                            sheet = "activities_grp") 
+
+df_partners <- read_excel(source_file, 
+                          sheet = "partner_grp")
+
+# Creating full row of congregations with their activities and partnerships
+df <- left_join(df_survey, df_partners,
+                by = c("_uuid" = "_submission__uuid")) %>%
+  left_join(df_activities,
+            by = c("_uuid" = "_submission__uuid")) %>%
+  rename(
+    congregation = `Congregation name`,
+    partner = `Please identify a partner organization your church engages in local mission work with.`,
+    org_type = `What type of organization is this partner?`,
+    activity = `What local mission activity does your church participate in?`,
+    activity_type = `What type of activity is this?`
+  ) %>%
+  filter(!is.na(partner),
+         !is.na(activity),
+         !is.na(congregation))
+
+
+```
+
+
+
+```{r edge_list, echo = FALSE, include = FALSE}
+
+# Filtering the data to return only network graph fields
+df %>% select("_uuid", 
+              congregation, 
+              partner, 
+              org_type, 
+              activity, 
+              activity_type) -> filtered_df
+
+# Activity wrangling
+#-------------------------------------------------------------------------------
+filtered_df %>% 
+  group_by(activity) %>%
+  summarize(congregations = paste(sort(unique(congregation)),
+                                  collapse=", ")) -> activity_congregations
+
+filtered_df %>% 
+  group_by(congregation) %>% 
+  summarize(activities = paste(sort(unique(activity)),collapse=", ")) %>% 
+  na.omit() -> activity_text
+
+# Getting the number of congregations that share a specific org type and putting them in different cols
+ncols <- max(stringr::str_count(unique(activity_congregations$congregations), " ")) + 1
+colmn <- paste("congregation",1:ncols)
+
+# Putting each congregation for each partner in its own column 
+activity_congregations <-
+  tidyr::separate(
+    data = activity_congregations,
+    col = congregations,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% select(-congregations)
+
+# Unique pairs of congregations for each partner separated by comma
+activity_congregations %>%
+  pivot_longer(cols = -activity) %>%
+  group_by(activity) %>%
+  summarise(combn = list(combn(value, 2, toString))) %>%
+  unnest(combn) %>% distinct() -> activity_congregations
+
+# Putting each congregation of each unique pair into a distinct column
+colmn <- paste("congregation",2:1)
+activity_congregations <-
+  tidyr::separate(
+    data = activity_congregations,
+    col = combn,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% 
+  select(-combn)
+  
+activity_congregations <- activity_congregations %>% rev()
+
+
+# Partner wrangling
+#------------------------------------------------------------------------------
+# Finding all congregations associated with each partner and putting them in a row
+filtered_df %>% group_by(partner) %>% 
+summarize(congregations = paste(sort(unique(congregation)),collapse=", ")) -> partner_congregations
+
+filtered_df %>% group_by(congregation) %>% 
+summarize(partners = paste(sort(unique(partner)),collapse=", ")) %>% na.omit() -> partner_text
+
+# Getting the number of congregations that share a specific partner and putting them in different cols
+ncols <- max(stringr::str_count(unique(partner_congregations$congregations), " ")) + 1
+colmn <- paste("congregation",1:ncols)
+
+# Putting each congregation for each partner in its own column 
+partner_congregations <-
+  tidyr::separate(
+    data = partner_congregations,
+    col = congregations,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% select(-congregations)
+
+# Unique pairs of congregations for each partner separated by comma
+partner_congregations %>%
+  pivot_longer(cols = -partner) %>%
+  group_by(partner) %>%
+  summarise(combn = list(combn(value, 2, toString))) %>%
+  unnest(combn) %>% distinct() -> partner_congregations
+
+# Putting each congregation of each unique pair into a distinct column
+colmn <- paste("congregation",2:1)
+partner_congregations <-
+  tidyr::separate(
+    data = partner_congregations,
+    col = combn,
+    sep = ", ",
+    into = colmn,
+    remove = FALSE
+  ) %>% 
+  select(-combn)
+  
+partner_congregations <- partner_congregations %>% rev()
+
+# Alternate edge list that separates activities and partners
+activities_and_partners <- left_join(partner_congregations, 
+                                     activity_congregations, 
+                                     by = c('congregation 1' = 'congregation 1', "congregation 2" = "congregation 2"))
+for (i in 1:nrow(activities_and_partners)){
+  if (activities_and_partners[i,]$`congregation 1` == "NA"){
+    activities_and_partners[i,]$`congregation 1` <- activities_and_partners[i,]$`congregation 2`
+  }
+  else if (activities_and_partners[i,]$`congregation 2` == "NA"){
+    activities_and_partners[i,]$`congregation 2` <- activities_and_partners[i,]$`congregation 1`
+  }
+}
+
+# Filter out nulls
+activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 2`),]
+activities_and_partners <- activities_and_partners[!grepl("NA", activities_and_partners$`congregation 1`),]
+df <- activities_and_partners %>% rename(from = 'congregation 1', to = 'congregation 2')
+
+
+
+# The section below is currently not being used but may be useful if the edgelist changes
+#------------------------------------------------------------------------------
+activities <- activity_congregations %>%
+  mutate(link_type = "activity", color = "yellow") %>% 
+  relocate(color, link_type, activity) %>% 
+  rename(specific_link = activity) %>% 
+  rev()
+
+partners <- partner_congregations %>% 
+  mutate(link_type = "partner", color = "pink") %>%
+  relocate(color, link_type, partner) %>% 
+  rename(specific_link = partner) %>% 
+  rev()
+
+# Binding rows of activity, parter, and organization type data frames
+connections <- rbind(partners, activities)
+connections <- connections %>% mutate(id = c(1:nrow(connections)))
+
+# Filter out nulls? Maybe not necessary
+connections <- connections[!grepl("NA", connections$`congregation 2`),]
+connections <- connections[!grepl("NA", connections$`congregation 1`),]
+#------------------------------------------------------------------------------
+
+```
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+checkboxGroupInput(
+  "my_partner",
+  label = h3("Choose a Partner"),
+  choices = unique(df$partner),
+  selected = unique(df$partner)
+  )
+```
+
+
+```{r}
+checkboxGroupInput(
+  "my_activity",
+  label = h3("Choose an Activity"),
+  choices = unique(df$activity),
+  selected = unique(df$activity)
+  )
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Chart A
+
+
+```{r}
+renderPlotly({
+  
+  set.seed(1)
+  
+
+# Making the igraph object and layout configurations
+ df %>%
+   # Currently the stacking logic of the filters isn't what it should be
+    dplyr::filter(partner %in% input$my_partner | activity %in% input$my_activity) %>%
+    graph_from_data_frame() -> my_igraph
+
+ network_layout <- layout_with_fr(my_igraph)
+
+# X and Y coordinates of nodes
+x_positions <- network_layout[,1]
+y_positions <- network_layout[,2]
+
+# Vertices, edges, and edgelist of the graph object
+vertices <- V(my_igraph)
+edges <- E(my_igraph)
+edgelist <- as.data.frame(get.edgelist(my_igraph))
+
+edge_positions <- data.frame(
+      x = network_layout[vertices[edgelist[1]$V1],1],
+      y = network_layout[vertices[edgelist[1]$V1],2],
+      xend = network_layout[vertices[edgelist[2]$V2],1],
+      yend = network_layout[vertices[edgelist[2]$V2],2]
+  )
+  
+plot_ly(
+    x = ~x_positions,
+    y = ~y_positions,
+    mode = "markers",
+    type = "scatter",
+    hoverinfo = "text",
+     text = ~paste(names(vertices)
+                 
+                   #TODO: Change df being fed to igraph and manipulate to have text change 
+                   # as filter input changes
+                 
+                     #, '<br><br>',
+    #                                 # Not sure why this isn't printing
+    #                    'Partners: ', partner_text$partners, '<br>',
+    #                                 # Or this
+    #                    'Activities: ', activity_text$activities, '<br>'
+                 
+    
+     )
+    
+  ) %>%
+  add_segments(
+    x = ~edge_positions$x,
+    y = ~edge_positions$y,
+    xend = ~edge_positions$xend,
+    yend = ~edge_positions$yend,
+    inherit = FALSE) %>% 
+  layout(xaxis = list(title="",
+                      zeroline = F,
+                      showgrid = F,
+                      showticklabels = F
+                     ),
+         yaxis = list(title="",
+                      zeroline = F,
+                      showgrid = F,
+                      showticklabels = F))
+})
+
+```
